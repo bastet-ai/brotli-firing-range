@@ -49,8 +49,20 @@ never execute third-party PoCs, lab decoders only.
 - Host checkout is master (190 commits past v1.2.0, includes b418fa8+).
 - kCmdLut init lives in c/dec/prefix.c (runtime init) AND embedded
   prefix_inc.h; insert extra bits go to 24 (offset 22594 = 0x5842).
+- Simple huff symbol width = Log2Floor(alphabet_max-1): literal 7b,
+  command 9b, distance 5b (alphabet = 16+(24<<1) = 64 at NPOSTFIX=0).
+- 0-bit codes confirmed: PreloadSymbol PEEKS 8 bits (no consume);
+  ReadPreloadedSymbol DropBits(*bits=0); bulk copier loop is bounded by
+  guard_in which never advances when codes are 0-bit => 64B pad keeps
+  CheckInputAmount true through the whole 2^24 literal burn.
+- CheckInputAmount = next_in < guard_in; guard = last_in - 28
+  (BROTLI_FAST_INPUT_SLACK) when avail_in+1 > 28.
 - Node/Bun/Envoy lanes live on :8121/:8125/:8122/:8123 — do not hit until
   rung 5, and only with minimized lab repros.
 
 ## Log
-- 2026-10-24: rung 1 complete, committed.
+- 2026-10-24: rung 1 complete, committed (203e964, 00a8dae).
+- 2026-10-24: rung1 self-audit verifier passes on all 4 constructs; 0-bit
+  literal code + guard_in semantics verified in v1.2.0 source; oracle
+  sweep script ready (scripts/oracle_sweep.sh); decodeh images still
+  building at last poll.
