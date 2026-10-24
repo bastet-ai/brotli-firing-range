@@ -18,20 +18,23 @@ static_resources:
                 route: { cluster: origin }
           http_filters:
           # THE vuln surface: decompress REQUEST bodies with embedded brotli
+          # (schema grounded on v1.39.2 api/envoy/extensions/filters/http/
+          #  decompressor/v3/decompressor.proto - request_direction_config)
           - name: envoy.filters.http.decompressor
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.decompressor.v3.Decompressor
               decompressor_library:
                 name: br
-                type: { expand_decompressed_payload_of_request: true }
-                library_path: ""
                 typed_config:
                   "@type": type.googleapis.com/envoy.extensions.compression.brotli.decompressor.v3.Brotli
-              request_direction:
-                enabled: true
-                content_length_threshold: 1
-              response_direction:
-                enabled: false
+              request_direction_config:
+                common_config:
+                  enabled:
+                    default_value: true
+                    runtime_key: decompressor.br.request.enabled
+                  ignore_no_transform_header: false
+                advertise_accept_encoding:
+                  value: true
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -42,5 +45,6 @@ static_resources:
       cluster_name: origin
       endpoints:
       - lb_endpoints:
-        - endpoint: { address: { socket_address: { address: origin, port_value: 8121 } } }
-admin: { address: { socket_address: { address: 127.0.0.1, port_value: 9901 } } }
+        - endpoint: { address: { socket_address: { address: node-vuln, port_value: 8121 } } }
+admin:
+  address: { socket_address: { address: 0.0.0.0, port_value: 9901 } }

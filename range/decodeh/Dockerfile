@@ -6,7 +6,7 @@ FROM ubuntu:24.04
 ARG BROTLI_TAG=v1.2.0
 ARG SAN=1
 RUN apt-get update -q && apt-get install -y -q --no-install-recommends \
-    git cmake gcc ca-certificates gdb && rm -rf /var/lib/apt/lists/*
+    git cmake make gcc ca-certificates gdb && rm -rf /var/lib/apt/lists/*
 RUN git clone --depth 1 --branch ${BROTLI_TAG} https://github.com/google/brotli.git /brotli
 WORKDIR /brotli
 RUN cmake -B build -DCMAKE_BUILD_TYPE=Debug \
