@@ -1,0 +1,89 @@
+file	mode	rig	exit	time	note
+a2_large.br	oneshot	decodeh-asan	137	30173ms	
+a2_large.br	oneshot	decodeh-ctrl	2	540ms	-17
+a2_large.br	bytes1	decodeh-asan	2	566ms	-9
+a2_large.br	bytes1	decodeh-ctrl	2	532ms	-17
+a2_large.br	bytes1refeed	decodeh-asan	2	551ms	-9
+a2_large.br	bytes1refeed	decodeh-ctrl	2	547ms	-17
+a2_large.br	chunk4	decodeh-asan	2	543ms	-9
+a2_large.br	chunk4	decodeh-ctrl	2	563ms	-17
+a2_large_min.br	oneshot	decodeh-asan	137	30176ms	
+a2_large_min.br	oneshot	decodeh-ctrl	2	492ms	-17
+a2_large_min.br	bytes1	decodeh-asan	2	544ms	-9
+a2_large_min.br	bytes1	decodeh-ctrl	2	553ms	-17
+a2_large_min.br	bytes1refeed	decodeh-asan	2	538ms	-9
+a2_large_min.br	bytes1refeed	decodeh-ctrl	2	530ms	-17
+a2_large_min.br	chunk4	decodeh-asan	2	556ms	-9
+a2_large_min.br	chunk4	decodeh-ctrl	2	562ms	-17
+a2_noswitch_ctrl.br	oneshot	decodeh-asan	2	394ms	
+a2_noswitch_ctrl.br	oneshot	decodeh-ctrl	2	386ms	
+a2_noswitch_ctrl.br	bytes1	decodeh-asan	2	407ms	
+a2_noswitch_ctrl.br	bytes1	decodeh-ctrl	2	384ms	
+a2_noswitch_ctrl.br	bytes1refeed	decodeh-asan	2	632ms	-9
+a2_noswitch_ctrl.br	bytes1refeed	decodeh-ctrl	2	607ms	-9
+a2_noswitch_ctrl.br	chunk4	decodeh-asan	2	411ms	
+a2_noswitch_ctrl.br	chunk4	decodeh-ctrl	2	390ms	
+a2_nsym1.br	oneshot	decodeh-asan	2	460ms	-9
+a2_nsym1.br	oneshot	decodeh-ctrl	2	502ms	-9
+a2_nsym1.br	bytes1	decodeh-asan	2	563ms	-9
+a2_nsym1.br	bytes1	decodeh-ctrl	2	562ms	-9
+a2_nsym1.br	bytes1refeed	decodeh-asan	2	555ms	-9
+a2_nsym1.br	bytes1refeed	decodeh-ctrl	2	507ms	-9
+a2_nsym1.br	chunk4	decodeh-asan	2	495ms	-9
+a2_nsym1.br	chunk4	decodeh-ctrl	2	577ms	-9
+a2_nsym1_short.br	oneshot	decodeh-asan	2	512ms	-9
+a2_nsym1_short.br	oneshot	decodeh-ctrl	2	523ms	-9
+a2_nsym1_short.br	bytes1	decodeh-asan	2	545ms	-9
+a2_nsym1_short.br	bytes1	decodeh-ctrl	2	540ms	-9
+a2_nsym1_short.br	bytes1refeed	decodeh-asan	2	546ms	-9
+a2_nsym1_short.br	bytes1refeed	decodeh-ctrl	2	528ms	-9
+a2_nsym1_short.br	chunk4	decodeh-asan	2	554ms	-9
+a2_nsym1_short.br	chunk4	decodeh-ctrl	2	524ms	-9
+a2_nsym2.br	oneshot	decodeh-asan	2	475ms	-9
+a2_nsym2.br	oneshot	decodeh-ctrl	2	413ms	-9
+a2_nsym2.br	bytes1	decodeh-asan	2	4772ms	-9
+a2_nsym2.br	bytes1	decodeh-ctrl	2	4841ms	-9
+a2_nsym2.br	bytes1refeed	decodeh-asan	2	4835ms	-9
+a2_nsym2.br	bytes1refeed	decodeh-ctrl	2	4874ms	-9
+a2_nsym2.br	chunk4	decodeh-asan	2	1609ms	-9
+a2_nsym2.br	chunk4	decodeh-ctrl	2	1610ms	-9
+a2_overshoot_ctrl.br	oneshot	decodeh-asan	2	382ms	-9
+a2_overshoot_ctrl.br	oneshot	decodeh-ctrl	2	374ms	-9
+a2_overshoot_ctrl.br	bytes1	decodeh-asan	2	386ms	-9
+a2_overshoot_ctrl.br	bytes1	decodeh-ctrl	2	362ms	-9
+a2_overshoot_ctrl.br	bytes1refeed	decodeh-asan	2	373ms	-9
+a2_overshoot_ctrl.br	bytes1refeed	decodeh-ctrl	2	371ms	-9
+a2_overshoot_ctrl.br	chunk4	decodeh-asan	2	362ms	-9
+a2_overshoot_ctrl.br	chunk4	decodeh-ctrl	2	380ms	-9
+poc0.br	oneshot	decodeh-asan	2	552ms	-9
+poc0.br	oneshot	decodeh-ctrl	2	547ms	-17
+poc0.br	bytes1	decodeh-asan	2	559ms	-9
+poc0.br	bytes1	decodeh-ctrl	2	455ms	-17
+poc0.br	bytes1refeed	decodeh-asan	2	446ms	-9
+poc0.br	bytes1refeed	decodeh-ctrl	2	463ms	-17
+poc0.br	chunk4	decodeh-asan	2	468ms	-9
+poc0.br	chunk4	decodeh-ctrl	2	523ms	-17
+poc1.br	oneshot	decodeh-asan	2	507ms	-9
+poc1.br	oneshot	decodeh-ctrl	2	531ms	-17
+poc1.br	bytes1	decodeh-asan	2	505ms	-9
+poc1.br	bytes1	decodeh-ctrl	2	527ms	-17
+poc1.br	bytes1refeed	decodeh-asan	2	534ms	-9
+poc1.br	bytes1refeed	decodeh-ctrl	2	542ms	-17
+poc1.br	chunk4	decodeh-asan	2	500ms	-9
+poc1.br	chunk4	decodeh-ctrl	2	508ms	-17
+poc2.br	oneshot	decodeh-asan	2	399ms	
+poc2.br	oneshot	decodeh-ctrl	2	367ms	
+poc2.br	bytes1	decodeh-asan	2	395ms	
+poc2.br	bytes1	decodeh-ctrl	2	378ms	
+poc2.br	bytes1refeed	decodeh-asan	2	366ms	
+poc2.br	bytes1refeed	decodeh-ctrl	2	370ms	
+poc2.br	chunk4	decodeh-asan	2	394ms	
+poc2.br	chunk4	decodeh-ctrl	2	360ms	
+poc3.br	oneshot	decodeh-asan	2	380ms	
+poc3.br	oneshot	decodeh-ctrl	2	369ms	
+poc3.br	bytes1	decodeh-asan	2	389ms	
+poc3.br	bytes1	decodeh-ctrl	2	411ms	
+poc3.br	bytes1refeed	decodeh-asan	2	369ms	
+poc3.br	bytes1refeed	decodeh-ctrl	2	365ms	
+poc3.br	chunk4	decodeh-asan	2	415ms	
+poc3.br	chunk4	decodeh-ctrl	2	382ms	
