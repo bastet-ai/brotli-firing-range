@@ -3,7 +3,7 @@
 # HIT for this bug = exit 124 (timeout: livelock) on vuln, clean error on ctrl.
 # ASan abort = separate class of hit; capture output.
 set -u
-CORPUS="$(dirname "$0")/../corpus"
+CORPUS="$(cd "$(dirname "$0")/../corpus" && pwd)"
 LOG="lanes/glm1/sweep-results.tsv"
 VULN_IMG=brotli-firing-range-decodeh-asan
 CTRL_IMG=brotli-firing-range-decodeh-ctrl
@@ -20,9 +20,11 @@ run_one() { # $1 img $2 mode $3 file $4 extra-args
   [ "$mode" = ring ]   && { m="ring";   arg="--ring"; }
   arg="$arg $extra"
   t0=$(date +%s%N)
-  timeout 20 docker run --rm -v "$CORPUS:/c" "$img" /decode $arg "/c/$(basename "$f")" \
+  cname="sweep_$$"
+  timeout 20 docker run --rm --name "$cname" -e ASAN_OPTIONS=detect_leaks=0 -v "$CORPUS:/c" "$img" /decode $arg "/c/${f#$CORPUS/}" \
     > "$CAP/$(basename "$f").$m.$tag.out" 2>&1
   rc=$?
+  docker kill "$cname" >/dev/null 2>&1 &  # reap livelocked orphans (rc=124 case)
   ms=$(( ($(date +%s%N) - t0) / 1000000 ))
   local note=""
   [ $rc -eq 124 ] && note="TIMEOUT-LIVELOCK"

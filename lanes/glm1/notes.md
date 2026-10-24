@@ -97,6 +97,26 @@ zlib brotli options: `params` in brotliDecompress?).
 4. Rung 6: DoS-vs-RCE verdict row + defensive write-up notes (block
    Content-Encoding: br at ingress or cap decode CPU; patch = upgrade).
 
+## RUNG 2 COMPLETE (docker rigs, sweep-results.tsv, 339 rows)
+- decodeh images: orchestrator builds had FAILED silently (Dockerfile bugs:
+  missing libc6-dev under --no-install-recommends -> crti.o; harness link
+  missing libbrotlicommon.a). Fixed Dockerfile; built all 3 rigs myself.
+- HIT: a2_large.br + a2_large_min.br x oneshot/stream/ring x decodeh-asan
+  = rc=124 TIMEOUT-LIVELOCK. CTRL: same files x decodeh-ctrl = rc=2,
+  code -17 BLOCK_SWITCH_-17 in ~0.4s. 300 clean errors, 33 valid decodes,
+  ZERO ASan reports => NO OOB (rung 4 gate NOT passed; no primitive).
+- Note: `timeout` kills the docker CLIENT, not the container; livelocked
+  containers must be docker-killed by name (sweep does this; also babysat).
+- Sweep script gotchas fixed: absolute corpus path, unique container
+  names, corpus-relative in-container paths (${f#$CORPUS/} not basename),
+  ASAN_OPTIONS=detect_leaks=0 (harness does not free; LSan noise only).
+
+## RUNG 6 COMPLETE — see verdict.md
+DoS (CPU livelock) confirmed at C level w/ LARGE_WINDOW; no OOB/primative;
+Node/Bun/Envoy lanes NOT reachable (no large window). Ladder DONE: 1,2,3
+complete; 4 gated out honestly; 5 done (all negatives source-proven); 6
+verdict + defensive notes written.
+
 ## Log
 - 2026-10-24: rung 1 committed (203e964, 00a8dae) — construct map +
   naive bitstreams (pre-reachability-proof).
