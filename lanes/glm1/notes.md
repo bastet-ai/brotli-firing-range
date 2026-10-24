@@ -75,8 +75,10 @@ zlib brotli options: `params` in brotliDecompress?).
 1. Images rebuild w/ new harness -> docker oracle sweep (constructs +
    seeds x oneshot/stream/ring x asan/plain/ctrl; --large for A2;
    rc=124 = HIT; log lanes/glm1/sweep-results.tsv).
-2. Rung 3 minimize a2_large.br (bit-level, not byte-level — it's 83B
-   already; can probably shave the warmup/padding minimally; document).
+2. Rung 3 DONE (preview): minimized = a2_large_min.br, 54 bytes;
+   remaining bits are all semantically required (prefix 12b, warmup
+   mb ~36b+1B for pos>=1, mb2 header ~34b, three simple trees 27b,
+   24b insert-extra, 35B pad for the 28B guard slack).
 3. Rung 5: POST a2_large.br to envoy :8123 (expect hang/timeout),
    node :8121 (expect clean error - window bits), bun :8122, ctrl
    node :8125. Record per-lane verdicts.

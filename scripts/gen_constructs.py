@@ -165,8 +165,10 @@ def build_a2_large(wbits=25, warmup=1, insert_extra=16754623, pad=64):
     bw.put(insert_extra, 24)           # insert = 2^24+1
     return bytes(bw.bytes()) + b"\x00" * pad
 
-# primary (LARGE_WINDOW): warmup + single-command 2^24+1 insert burn
+# primary (LARGE_WINDOW): warmup + single-command 2^24+1 insert burn.
+# pad 35 is the empirical minimum (guard_in slack 28B); 64 = robust margin.
 emit("a2_large.br", build_a2_large())
+emit("a2_large_min.br", build_a2_large(pad=35))
 # primary (no large window; kept as negative-control shape: unreachable per proof)
 emit("a2_nsym1.br", build_a2(nsym_lit=1))
 # safe-stall variant: minimal padding (bit reader runs dry mid-burn ->
