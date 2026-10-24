@@ -62,6 +62,18 @@ unsafe mode via BROTLI_SAFE_WITH_STATUS.
   worktrees /tmp/b120, /tmp/b121. Matrix: v120 --large[*] = rc124
   livelock; v121 --large[*] = rc2 code -17 fast; no --large = rc2 -13.
 
+## APP-LANE MATRIX (rung 5 preview done — ALL NEGATIVE, source-proven)
+- envoy 1.39.2: brotli filter sets ONLY DISABLE_RING_BUFFER_REALLOCATION
+  (source/extensions/compression/brotli/decompressor/brotli_decompressor_impl.cc
+  @v1.39.2), never LARGE_WINDOW; + MaxInflateRatio=100 bomb protection.
+  a2_large -> brotli_error stat, 0-byte body upstream. Envoy pins brotli
+  v1.2.0 (repository_locations.bzl) — vulnerable CODE, unreachable STATE.
+- node 22.23.3 & ctrl 22.23.4: zlib brotliDecompressSync, no large-window
+  param -> "Decompression failed". bun 1.4.3 DecompressionStream("brotli")
+  (lane app fixed from "br") -> "brotli decode failed".
+- Pre-1.0.3 stale-table "continue" theory DEAD for envoy (pins v1.2.0).
+- v1.1.0 tag also livelocks; v1.0.9 errors cleanly (-10).
+
 ## Verdict so far (honest)
 DoS (CPU livelock / event-loop freeze; plus spurious-NEEDS_MORE_INPUT
 stall variant for safe machine when input runs dry at the switch).
