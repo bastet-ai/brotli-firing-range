@@ -117,6 +117,25 @@ Node/Bun/Envoy lanes NOT reachable (no large window). Ladder DONE: 1,2,3
 complete; 4 gated out honestly; 5 done (all negatives source-proven); 6
 verdict + defensive notes written.
 
+## RUNG 7 (RESEARCH rollup) — differential CONFIRMED, OOB NOT (see verdict.md)
+- 7a DONE: harness has --bytes1 / --chunk=N / --refeed=N; DCHECK verified
+  compiled OUT in asan image (BROTLI_DEBUG absent; no -DNDEBUG needed).
+- 7b/7c DONE: sweep2-results.tsv (88 rows) + captures2/ + local pristine
+  v1.1.0/v1.2.0 ASan: -9(vuln)/-17(ctrl) differential on ALL modes; ZERO
+  ASan reports; poc2/3 = plain uncompressed-truncation stalls (state 11).
+- G3-PROOF CORRECTION (IMPORTANT): pos wraps RESET the pos/bl lockstep;
+  the mod-ring identity kills the 2^24 term when ring | 2^24 -> the
+  two-command trigger works on ANY standard window (poc0 does it in 22B
+  with a 3-byte uncompressed warmup mb1). a2_nsym1.br was already this
+  shape. LARGE_WINDOW was never required for the SWITCH — only for the
+  one-shot UNSAFE livelock (>= 29B input).
+- The append-OOB (s->buffer.u8) is fenced: P1-switch NMI-lie + proactive
+  push requires MLEN>=0 at P1, impossible since MLEN_rem = bl - sumcopies
+  < bl+1 <= insert. Terminal -9 blocks all further feeding. 100k-byte
+  feeds: clean. Imperva RCE not reproducible at C level; likely wrapper/
+  environment-specific — flagged honestly in verdict.
+- Node app lanes: no app-level differential (generic messages), no crash.
+
 ## Log
 - 2026-10-24: rung 1 committed (203e964, 00a8dae) — construct map +
   naive bitstreams (pre-reachability-proof).
