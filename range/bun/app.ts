@@ -6,7 +6,7 @@ const server = Bun.serve({
     if (req.url.endsWith("/decompress")) {
       const body = new Uint8Array(await req.arrayBuffer());
       try {
-        const ds = new DecompressionStream("br");
+        const ds = new DecompressionStream("brotli");
         const out = await new Response(
           new Blob([body]).stream().pipeThrough(ds)
         ).arrayBuffer();

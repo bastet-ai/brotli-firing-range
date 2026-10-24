@@ -152,3 +152,34 @@ re-litigates it later.
   demonstrating the guards; only a2_large.br triggers.
 - Watch the ctrl (1.2.1 asan) run time on A2: it must still burn ~2^24
   literals (~40ms native; slower under ASan) before erroring -17.
+
+## Lineage behavior matrix on a2_large (empirical, local pristine builds + lanes)
+
+| decoder | behavior on a2_large_min.br |
+|---|---|
+| brotli v1.2.0 (+LARGE_WINDOW, our --large harness) | **LIVELOCK, 100% CPU, never returns** (all modes) |
+| brotli v1.2.1 (+LARGE_WINDOW) | clean -17 ERROR_FORMAT_BLOCK_SWITCH |
+| brotli v1.1.0 (+LARGE_WINDOW) | LIVELOCK (same flaw) |
+| brotli v1.0.9 (+LARGE_WINDOW) | clean error (-10) |
+| node 22.23.3 :8121 (zlib brotliDecompressSync) | "Decompression failed" — no LARGE_WINDOW param |
+| node 22.23.4 :8125 (ctrl) | same clean error (control behaves identically) |
+| bun 1.4.3 :8122 (DecompressionStream "brotli") | "brotli decode failed" — no large window |
+| envoy 1.39.2 :8123 (brotli request decompressor) | brotli_error stat + 0-byte body forwarded; source proof: BrotliDecompressorImpl sets only DISABLE_RING_BUFFER_REALLOCATION, never LARGE_WINDOW, plus MaxInflateRatio=100 bomb protection |
+
+`max_block_type <= 1` early-return was added in 35e69fc (just before v1.0.3);
+lineages >= 1.0.3 all have it; the pre-1.0.3 "continue with stale tables"
+theory is DEAD for envoy (envoy 1.39.2 pins brotli **v1.2.0** per
+repository_locations.bzl, and its wrapper never enables large window).
+
+## App-lane verdict (rung 5 preview, honest)
+
+None of the deployed embeddings in this range (Node z-stream, Bun
+DecompressionStream, Envoy brotli filter) enable
+BROTLI_DECODER_PARAM_LARGE_WINDOW, which our reachability proof shows is
+REQUIRED to reach the vulnerable state (with standard windows the
+pre-existing MLEN<0 guards + ring geometry make the trigger unreachable).
+Therefore the b418fa8 flaw is NOT reachable through these products as
+deployed here; the advisory's product list reflects vulnerable brotli
+pins, not reachability of this construct. The C-level oracle stands:
+any large-window-enabled decoder on v1.2.0/v1.1.0 lineages livelocks on
+54 bytes.
