@@ -1,0 +1,37 @@
+# All loopback-published. Vulnerable lanes + patched controls.
+# Build args carry the brotli lineage; NEVER pin platform (two-boxes rule).
+services:
+  decodeh-asan:
+    build: { context: range/decodeh, args: { BROTLI_TAG: v1.2.0, SAN: "1" } }
+    profiles: ["build-only"]   # run via docker run with corpus mounts, not a service
+  decodeh:
+    build: { context: range/decodeh, args: { BROTLI_TAG: v1.2.0, SAN: "0" } }
+    profiles: ["build-only"]
+  decodeh-ctrl:
+    build: { context: range/decodeh, args: { BROTLI_TAG: v1.2.1, SAN: "1" } }
+    profiles: ["build-only"]
+  node-vuln:
+    image: node:22.23.3-slim
+    command: ["node", "/app/app.js"]
+    volumes: ["./range/node:/app:ro"]
+    ports: ["127.0.0.1:8121:8121"]
+    restart: unless-stopped
+  node-ctrl:
+    image: node:22.23.4-slim
+    command: ["node", "/app/app.js"]
+    volumes: ["./range/node:/app:ro"]
+    ports: ["127.0.0.1:8125:8121"]
+    restart: unless-stopped
+  bun-vuln:
+    image: oven/bun:1.4.3-slim
+    command: ["bun", "/app/app.ts"]
+    volumes: ["./range/bun:/app:ro"]
+    ports: ["127.0.0.1:8122:8122"]
+    restart: unless-stopped
+  envoy-vuln:
+    image: envoyproxy/envoy:v1.39.2
+    command: ["-c", "/etc/envoy/envoy.yaml", "--disable-hot-restart"]
+    volumes: ["./range/envoy:/etc/envoy:ro"]
+    ports: ["127.0.0.1:8123:10000"]
+    depends_on: [node-vuln]
+    restart: unless-stopped

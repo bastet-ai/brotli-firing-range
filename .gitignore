@@ -1,0 +1,4 @@
+corpus/fuzz/
+corpus/crashes/
+*.log
+vm/

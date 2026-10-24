@@ -1,0 +1,46 @@
+static_resources:
+  listeners:
+  - name: br-in
+    address: { socket_address: { address: 0.0.0.0, port_value: 10000 } }
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress
+          route_config:
+            name: r
+            virtual_hosts:
+            - name: vh
+              domains: ["*"]
+              routes:
+              - match: { prefix: "/" }
+                route: { cluster: origin }
+          http_filters:
+          # THE vuln surface: decompress REQUEST bodies with embedded brotli
+          - name: envoy.filters.http.decompressor
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.decompressor.v3.Decompressor
+              decompressor_library:
+                name: br
+                type: { expand_decompressed_payload_of_request: true }
+                library_path: ""
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.compression.brotli.decompressor.v3.Brotli
+              request_direction:
+                enabled: true
+                content_length_threshold: 1
+              response_direction:
+                enabled: false
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+  - name: origin
+    type: STRICT_DNS
+    load_assignment:
+      cluster_name: origin
+      endpoints:
+      - lb_endpoints:
+        - endpoint: { address: { socket_address: { address: origin, port_value: 8121 } } }
+admin: { address: { socket_address: { address: 127.0.0.1, port_value: 9901 } } }
