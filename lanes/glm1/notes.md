@@ -4,65 +4,90 @@ Repo ~/brotli-firing-range, lane brot-glm1, BRIEF.md = ladder. `timeout 20`
 on shell-outs. Commit+push every result as "brot1: ...". Static audit first,
 never execute third-party PoCs, lab decoders only.
 
-## Where we are
-- **Rung 1 DONE** (see construct-map.md — read it, it has the full reasoning):
-  - Only reachable fix-diff construct is **A2**: literal block switch with
-    NBLTYPESL==1, driven to `block_length[0]==0` by an UNCLAMPED 24-extra-bit
-    insert length (cmd symbol 504, insert offset 22594, max insert 16799809
-    > 2^24 = BROTLI_BLOCK_SIZE_CAP). Old code: `DecodeBlockTypeAndLength`
-    returns FALSE for max_block_type<=1; UNSAFE machine (the default fast
-    path of BrotliDecoderDecompressStream, decode120.c L2788!) DISCARDS the
-    FALSE -> infinite NextLiteralBlock<->CommandInner loop, 0 bits consumed,
-    100% CPU, never returns. SAFE machine converts the same FALSE into a
-    permanent spurious NEEDS_MORE_INPUT (stream stall / "truncated").
-  - A1 (command switch) / A3 (distance switch) mathematically unreachable:
-    every command consumes >=2 MLEN, MLEN <= 2^24 => <= 2^23 commands/dist
-    reads < 2^24 default block length. Proof in construct-map.md.
-  - Constructs B/C (safe-mode mid-switch needs-input) have NO behavioral
-    delta in the fix; transactional reads; do not re-litigate.
-  - Working hypothesis: this is a CPU-livelock DoS, not OOB. If ASan says
-    otherwise on rung 2, trust ASan and re-derive.
-- **Bitstreams built**: corpus/constructs/{a2_nsym1.br (76B, primary),
-  a2_nsym1_short.br (16B, safe-stall variant), a2_nsym2.br (2MB, 1-bit
-  literal codes fallback), a2_noswitch_ctrl.br (insert below cap, no
-  trigger)} via scripts/gen_constructs.py (hand-rolled LSB-first bit
-  writer; no encoder used, no third-party decoder touched).
-  Bit-layout notes: WBITS bit0=0->w16; ISLAST=1; MNIBBLES=00; MLEN-1 16b;
-  NBLTYPESL/C/D=1 (1 bit each); NPOSTFIX/NDIRECT 6x0; CMPL=0; NTREES=1;
-  simple huff = '01' + NSYM-1(2b) + symbols; literal alphabet 256->7b,
-  cmd 704->9b, dist alphabet 64 (16+(24<<1))->5b; cmd symbol 504; insert
-  extra 24 bits = 16754624 -> insert 2^24+2; 64B zero padding keeps
-  CheckInputAmount fed (0-bit literal codes consume nothing).
+## HEADLINE (rung 1 + local rung-2 preview COMPLETE)
+**Construct A2 reproduced: 83-byte .br -> vulnerable brotli v1.2.0 livelocks
+at 100% CPU forever (never returns, all API shapes); v1.2.1 rejects cleanly
+with -17 ERROR_FORMAT_BLOCK_SWITCH in 40ms.** Confirmed on local pristine
+builds of both tags with our own harness (NOT yet on the docker rigs —
+see BLOCKED below).
 
-## Next (rung 2, blocked on docker images decodeh-asan/-plain/-ctrl)
-- Sweep corpus/seeds + corpus/constructs through decodeh-asan
-  (`docker run --rm -v corpus:/c IMG /decode /c/x.br`, also --stream and
-  --ring modes per harness) — **expect NO ASan hit on seeds** (they're
-  truncated/flips, not this construct); a2_nsym1.br should HANG (timeout)
-  on vuln builds and error cleanly (-17 ERROR_FORMAT_BLOCK_SWITCH) on ctrl.
-  A hang IS the hit for this construct; record it as such.
-- If asan reports an actual OOB anywhere, minimize (rung 3) with bisection
-  on the .br bytes (scripts to be written; keep grammar-valid otherwise).
+The bug: DecodeBlockTypeAndLength returns BROTLI_FALSE for
+max_block_type<=1; the UNSAFE state machine (default first path of
+BrotliDecoderDecompressStream) DISCARDS the FALSE ->
+NextLiteralBlock <-> CommandInner infinite loop, 0 bits consumed.
+Fix b418fa8 maps it to ERROR_FORMAT_BLOCK_SWITCH and propagates in
+unsafe mode via BROTLI_SAFE_WITH_STATUS.
 
-## Gotchas learned
-- decode120.c = v1.2.0 decode.c dump (regenerate: git show v1.2.0:c/dec/decode.c).
-- Host checkout is master (190 commits past v1.2.0, includes b418fa8+).
-- kCmdLut init lives in c/dec/prefix.c (runtime init) AND embedded
-  prefix_inc.h; insert extra bits go to 24 (offset 22594 = 0x5842).
-- Simple huff symbol width = Log2Floor(alphabet_max-1): literal 7b,
-  command 9b, distance 5b (alphabet = 16+(24<<1) = 64 at NPOSTFIX=0).
-- 0-bit codes confirmed: PreloadSymbol PEEKS 8 bits (no consume);
-  ReadPreloadedSymbol DropBits(*bits=0); bulk copier loop is bounded by
-  guard_in which never advances when codes are 0-bit => 64B pad keeps
-  CheckInputAmount true through the whole 2^24 literal burn.
-- CheckInputAmount = next_in < guard_in; guard = last_in - 28
-  (BROTLI_FAST_INPUT_SLACK) when avail_in+1 > 28.
-- Node/Bun/Envoy lanes live on :8121/:8125/:8122/:8123 — do not hit until
-  rung 5, and only with minimized lab repros.
+## CRITICAL reachability facts (do not lose these)
+- A2 requires the app to SetParameter(BROTLI_DECODER_PARAM_LARGE_WINDOW,1).
+  **Envoy's brotli decompressor sets it; Node zlib/Bun default = off**
+  (verify at rung 5). Without it the stream dies -13 at window bits.
+- Three v1.2.0 guards make naive shapes impossible (all verified):
+  G1 upfront `meta_block_remaining_len -= insert`, checked <0 at every
+  ring wrap (BLOCK_LENGTH_1) / metablock end (BLOCK_LENGTH_2), plus <=0
+  ends the metablock after each command; G2 MLEN <= 2^24 = bl[0] initial;
+  G3 ring = pow2 >= pos+MLEN capped at 1<<window_bits -> wrap always
+  precedes trigger with standard windows.
+- Escape: LARGE_WINDOW stream (prefix 1,000,001,0 + 6-bit wbits 10..30)
+  + first metablock leaving pos>=1 (1-byte uncompressed warmup) ->
+  BrotliCalculateRingBufferSize gives ring 2^25 > burn -> no wrap ever
+  -> literal 2^24+1 trips the switch while all guards stay unobserved.
+- kCmdLut symbol 504 = insert 22594 + 24 extra bits (max insert 16799809
+  > 2^24), copy 2, explicit distance. Symbol 32 = insert 4/copy 2.
+- Header bit-order gotchas banked: ISUNCOMPRESSED bit ONLY for NON-last
+  metablocks; simple-huff symbols are Log2Floor(alpha-1) bits where C
+  Log2Floor == bit_length (lit 8, cmd 10, dist 6, dist-large-window 8
+  [alphabet 140]); MLEN nibbles shift by 4i; large-window prefix selects
+  via 1,000,001,0.
+- 0-bit literal codes confirmed real: 1-symbol simple tree = code length 0
+  (BrotliBuildSimpleHuffmanTable case 0); bulk copier consumes nothing;
+  64B zero pad keeps CheckInputAmount (next_in < guard_in, slack 28B) fed.
+
+## Artifacts
+- corpus/constructs/: **a2_large.br (83B, THE repro)**; a2_nsym1.br /
+  a2_nsym1_short.br / a2_nsym2.br (non-large shapes = unreachable-proof
+  controls, die -9/-13 on stock decoders); a2_overshoot_ctrl.br (dies -9
+  = G1 guard demo); a2_noswitch_ctrl.br (burn only, no trigger, clean).
+- scripts/gen_constructs.py (builder), scripts/verify_construct.py
+  (bit-level replay self-audit), scripts/oracle_sweep.sh (rung 2 sweep,
+  needs update: add --large mode + treat rc=124 as HIT), lane docs.
+- range/decodeh/harness.c CHANGED: output draining (loop on
+  NEEDS_MORE_OUTPUT — A2 produces 16MB before the trigger; without
+  draining you get false negatives) + `--large` flag (SetParameter
+  LARGE_WINDOW=1, models Envoy). **DECODEH IMAGES MUST BE REBUILT with
+  the new harness.c** — old-harness images will false-negative on A2.
+  Tell the orchestrator.
+- Local pre-validated rigs (host, ours only, no docker): /tmp/decode_v120
+  (v1.2.0), /tmp/decode_v121 (v1.2.1), /tmp/decode_dbg_large (instr.);
+  worktrees /tmp/b120, /tmp/b121. Matrix: v120 --large[*] = rc124
+  livelock; v121 --large[*] = rc2 code -17 fast; no --large = rc2 -13.
+
+## Verdict so far (honest)
+DoS (CPU livelock / event-loop freeze; plus spurious-NEEDS_MORE_INPUT
+stall variant for safe machine when input runs dry at the switch).
+No OOB/write primitive visible in this diff. Rung 4 likely N/A unless
+ASan surprises. Rung 5: Envoy lane (:8123, brotli request decompressor,
+v1.39.2) is the primary real-world target; Node/Bun lanes expected
+CLEAN unless they expose LARGE_WINDOW params (check node
+zlib brotli options: `params` in brotliDecompress?).
+
+## Next
+1. Images rebuild w/ new harness -> docker oracle sweep (constructs +
+   seeds x oneshot/stream/ring x asan/plain/ctrl; --large for A2;
+   rc=124 = HIT; log lanes/glm1/sweep-results.tsv).
+2. Rung 3 minimize a2_large.br (bit-level, not byte-level — it's 83B
+   already; can probably shave the warmup/padding minimally; document).
+3. Rung 5: POST a2_large.br to envoy :8123 (expect hang/timeout),
+   node :8121 (expect clean error - window bits), bun :8122, ctrl
+   node :8125. Record per-lane verdicts.
+4. Rung 6: DoS-vs-RCE verdict row + defensive write-up notes (block
+   Content-Encoding: br at ingress or cap decode CPU; patch = upgrade).
 
 ## Log
-- 2026-10-24: rung 1 complete, committed (203e964, 00a8dae).
-- 2026-10-24: rung1 self-audit verifier passes on all 4 constructs; 0-bit
-  literal code + guard_in semantics verified in v1.2.0 source; oracle
-  sweep script ready (scripts/oracle_sweep.sh); decodeh images still
-  building at last poll.
+- 2026-10-24: rung 1 committed (203e964, 00a8dae) — construct map +
+  naive bitstreams (pre-reachability-proof).
+- 2026-10-24: reachability deep-dive: found G1/G2/G3 guards; naive
+  shapes all die -9 locally; proved unreachability for standard windows;
+  found LARGE_WINDOW + warmup escape; a2_large.br LIVALOCKS v1.2.0
+  (all modes) and errors -17 on v1.2.1. Harness fixed (drain + --large).
+  Committing. Images need rebuild.

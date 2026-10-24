@@ -1,8 +1,16 @@
 /* brotli decode harness: file -> decoder, oracle via exit code + ASan.
- * /decode file.br            one-shot BrotliDecoderDecompress
+ * /decode file.br            one-shot style, dynamically growing output
+ *                            (models Node sync decompress: drains everything)
  * /decode --stream file.br   streaming decompressor, 64KB chunks (partial paths)
- * /decode --ring file.br     streaming into a REUSED fixed ring output buffer
+ * /decode --ring file.br     streaming into a REUSED fixed output buffer
  *                            (models caller-buffer reuse like HTTP servers)
+ * /decode --large ...        additionally SetParameter(LARGE_WINDOW=1)
+ *                            (models Envoy brotli decompressor, which opts in;
+ *                            construct A2 reachability requires large window)
+ * Both streaming modes DRAIN output continuously (loop on NEEDS_MORE_OUTPUT
+ * as well as NEEDS_MORE_INPUT) — CVE-2026-111497 construct A2 produces
+ * 2^24 literals (~16MB) before the trigger; without draining we'd get a
+ * false NEEDS_MORE_OUTPUT error long before the block switch fires.
  * exit 0 ok / 2 decoder error / ASan aborts on corruption.
  */
 #include <stdio.h>
@@ -20,25 +28,51 @@ static unsigned char *readfile(const char *p, size_t *len) {
 }
 
 int main(int argc, char **argv) {
-  int mode = 0; const char *path = argv[argc - 1];
-  if (argc > 2 && !strcmp(argv[1], "--stream")) mode = 1;
-  if (argc > 2 && !strcmp(argv[1], "--ring")) mode = 2;
+  int mode = 0, large = 0; const char *path = argv[argc - 1];
+  for (int a = 1; a < argc - 1; ++a) {
+    if (!strcmp(argv[a], "--stream")) mode = 1;
+    if (!strcmp(argv[a], "--ring")) mode = 2;
+    if (!strcmp(argv[a], "--large")) large = 1;
+  }
   size_t in_len; unsigned char *in = readfile(path, &in_len);
 
-  if (mode == 0) {
-    size_t avail_out = in_len * 16 + 65536; /* decoder max expansion bound-ish; harness generous */
-    unsigned char *out = malloc(avail_out);
-    size_t total = avail_out;
-    BrotliDecoderResult r = BrotliDecoderDecompress(in_len, in, &total, out);
-    fprintf(stderr, "rc=%d total_out=%zu\n", (int)r.result, total);
-    return r.result == BROTLI_DECODER_RESULT_SUCCESS ? 0 : 2;
+  BrotliDecoderState *mkstate(void) {
+    BrotliDecoderState *t = BrotliDecoderCreateInstance(NULL, NULL, NULL);
+    if (large) BrotliDecoderSetParameter(t, BROTLI_DECODER_PARAM_LARGE_WINDOW, 1);
+    return t;
   }
-  BrotliDecoderState *s = BrotliDecoderCreateInstance(NULL, NULL, NULL);
+
+  if (mode == 0) {
+    /* one-shot style with dynamic output growth */
+    BrotliDecoderState *s = mkstate();
+    size_t cap = 1 << 20, len = 0;
+    unsigned char *out = malloc(cap);
+    size_t avail_in = in_len;
+    const uint8_t *next_in = in;
+    BrotliDecoderResult r;
+    for (;;) {
+      size_t avail_out = cap - len;
+      uint8_t *next_out = out + len;
+      r = BrotliDecoderDecompressStream(s, &avail_in, &next_in,
+                                        &avail_out, &next_out, NULL);
+      len = (size_t)(next_out - out);
+      if (r == BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT) {
+        cap *= 2;
+        out = realloc(out, cap);
+        continue;
+      }
+      break;
+    }
+    fprintf(stderr, "oneshot rc=%d total_out=%zu code=%d\n", (int)r, len,
+            (int)BrotliDecoderGetErrorCode(s));
+    return r == BROTLI_DECODER_RESULT_SUCCESS ? 0 : 2;
+  }
+  BrotliDecoderState *s = mkstate();
   size_t in_off = 0;
   const size_t CHUNK = 65536;
   unsigned char *fixed = malloc(CHUNK); /* ring: reused buffer, models server reuse */
   BrotliDecoderResult r = BROTLI_DECODER_RESULT_ERROR;
-  do {
+  for (;;) {
     size_t avail_in = in_len - in_off;
     const uint8_t *next_in = in + in_off;
     size_t avail_out = CHUNK; uint8_t *next_out = fixed;
@@ -50,7 +84,11 @@ int main(int argc, char **argv) {
               (int)BrotliDecoderGetErrorCode(s));
       return 2;
     }
-  } while (r == BROTLI_DECODER_RESULT_NEEDS_MORE_INPUT && in_off < in_len);
-  fprintf(stderr, "stream done rc=%d\n", (int)r.result);
-  return r.result == BROTLI_DECODER_RESULT_SUCCESS ? 0 : 2;
+    if (r == BROTLI_DECODER_RESULT_NEEDS_MORE_OUTPUT) continue; /* drain + retry */
+    if (r == BROTLI_DECODER_RESULT_NEEDS_MORE_INPUT && in_off < in_len) continue;
+    break;
+  }
+  fprintf(stderr, "stream done rc=%d code=%d\n", (int)r,
+          (int)BrotliDecoderGetErrorCode(s));
+  return r == BROTLI_DECODER_RESULT_SUCCESS ? 0 : 2;
 }

@@ -58,51 +58,75 @@ Switch state (type/length) is only stream-read when NBLTYPES >= 2. So with
   `{0x18, 0x00, -1, 0x00, 0x5842, 0x0002}`, symbol **504**), i.e. max
   insert = 22594 + 2^24 - 1 = 16799809 > 2^24. **A2 REACHABLE.**
 
-## Construct A2 (the one that matters) — literal switch with NBLTYPESL=1
+## Construct A2 — literal switch with NBLTYPESL=1 (REACHABLE, requires LARGE_WINDOW)
 
-Shape (single metablock, hand-built bitstream, see scripts/gen_constructs.py):
+**Reachability is the subtle part — three v1.2.0 guards fence off the naive
+shapes, and the final working shape needs the large-window code path:**
 
-- WBITS=16 (bit 0); ISLAST=1, ISLASTEMPTY=0, MNIBBLES=0b00 (4 nibbles),
-  MLEN-1 = tiny (MLEN can even be 1 — the overshoot is unchecked);
-  ISUNCOMPRESSED=0.
-- NBLTYPESL = NBLTYPESC = NBLTYPESD = 1 (one '0' bit each, so **no block
-  type/count codes exist** => `max_block_type = 1` => P1).
-- NPOSTFIX=0, NDIRECT=0 (6 zero bits), CMPL=0, NTREESL=1 (no cmap), simple
-  1-symbol literal htree => literal codes are **0 bits** (no bit-reader
-  pressure for 2^24 literals), simple 1-symbol command tree with symbol
-  504, simple 1-symbol distance tree.
-- Command: symbol 504 (0-bit code) + 24-bit insert-extra V with
-  22594 + V > 2^24 (V >= 16754623; we use V = 16754624 => insert = 2^24+2);
-  copy extra = 0 bits.
-- Trailing zero padding (>= ~32B) so `CheckInputAmount` never fails and the
-  unsafe machine never yields to the safe one.
+Guards discovered (all in v1.2.0):
+- G1: `meta_block_remaining_len -= i` is UPFRONT per command; the value is
+  checked `< 0` in `WriteRingBuffer` (error BLOCK_LENGTH_1, raised on every
+  ring-buffer wrap / output flush) and at METABLOCK_DONE (BLOCK_LENGTH_2),
+  plus `<= 0 -> metablock ends` after every command's insert/copy.
+- G2: MLEN <= 2^24 = BROTLI_BLOCK_SIZE_CAP = initial block_length[0]. So
+  attempted literals (sum of inserts) <= MLEN < 2^24+1 while MLEN >= 0 —
+  the trigger literal (2^24+1) forces MLEN < 0.
+- G3: ring geometry. pos advances 1 per literal AND per copy byte;
+  block_length[0] only per literal. At any command start:
+  pos0 + bl = 2^24 + sum_copies (mod ring). Trigger needs
+  pos0 + bl + 1 <= ring; with ring <= 2^24 (window cap) and the G2 invariant,
+  a wrap ALWAYS precedes the trigger (proof by cases k=floor((I+C)/ring)),
+  and that wrap's WriteRingBuffer sees the G1 negative MLEN -> clean error.
+  Empirically confirmed: every naive shape dies with BLOCK_LENGTH_1/-9.
 
-Old (v1.2.0) behavior on A2:
-1. CommandInner burns insert literals against `block_length[0]=2^24`
-   (ringbuffer wraps ~256 times @ 64KB window; ~2^24 fast bulk iterations,
-   well under a second).
-2. `block_length[0]==0` -> `goto NextLiteralBlock` ->
-   `DecodeLiteralBlockSwitch` -> P1 FALSE.
-3. **Unsafe machine**: FALSE discarded -> `goto CommandInner` ->
-   `block_length[0]==0` -> `goto NextLiteralBlock` -> ... **infinite loop,
-   zero bits consumed, 100% CPU, never returns.** This is inside
-   `ProcessCommands`, which `BrotliDecoderDecompressStream` tries FIRST
-   (L2788), so **both one-shot and streaming APIs livelock** while the bit
-   reader still has buffered input.
-4. **Safe machine** (only if input is exhausted at the switch): permanent
-   spurious `BROTLI_DECODER_NEEDS_MORE_INPUT` — stream never completes,
-   never errors until the app closes input ("truncated"-style error).
+The escape: `BrotliCalculateRingBufferSize` sizes the ring to
+`pow2 >= pos + MLEN` (canny allocation) but CAPS it at `1 << window_bits`.
+With **LARGE_WINDOW** enabled (`BrotliDecoderSetParameter(...,
+BROTLI_DECODER_PARAM_LARGE_WINDOW, 1)` — public opt-in, e.g. Envoy's brotli
+decompressor sets it), the stream can declare window_bits up to 30.
+Then a first metablock that leaves pos >= 1 makes
+min_size = pos + 2^24 > 2^24, so the ring becomes 2^25 (canny halving
+cannot shrink below min_size) — **bigger than the whole 2^24 literal
+burn**, so no wrap ever happens, G1 is never observed, and the
+(2^24+1)-th literal hits `block_length[0]==0` -> NextLiteralBlock ->
+DecodeBlockTypeAndLength -> `max_block_type <= 1` -> FALSE.
 
-New (v1.2.1) behavior: `ERROR_FORMAT_BLOCK_SWITCH` (-17) after the same
-2^24 literal burn => clean error. This is the negative-control oracle.
+Working bitstream (corpus/constructs/a2_large.br, 83 bytes):
+- large-window WBITS prefix: 1,000,001,0 + 6-bit wbits=25
+  (only decodes when the app enabled LARGE_WINDOW; otherwise -13 error).
+- mb1: ISLAST=0, MNIBBLES=00, MLEN=1, ISUNCOMPRESSED=1 (non-last reads
+  the bit!), byte-align, one raw 'A' -> pos=1. NB: distance htree symbol
+  width becomes 8 bits (large-window dist alphabet = 16+(62<<1) = 140).
+- mb2: ISLAST=1, MLEN=2^24 (MNIBBLES code 2, six 0xF nibbles), NBLTYPES
+  1/1/1, NPOSTFIX=NDIRECT=0, CMPL=0, NTREES 1/1, simple 1-symbol trees
+  (literal sym 0 => 0-bit codes; cmd sym 504 => insert 22594+24b, copy 2;
+  dist sym 0), single command with 24-bit insert-extra 16754623
+  -> insert = 2^24+1, then 64B zero padding (keeps CheckInputAmount fed).
 
-Sub-variants to emit:
-- `a2_nsym1.br` — 0-bit literal codes (primary, ~25 bytes).
-- `a2_nsym2.br` — 2-symbol literal tree (1-bit codes) in case 1-symbol
-  trees are rejected by some builds; needs ~2MB padding because each
-  literal consumes 1 bit.
-- `a2_nsym1_short.br` — same as primary but minimal padding: proves the
-  safe-mode spurious-NEEDS_MORE_INPUT stall variant.
+Old (v1.2.0) behavior: burn 2^24 zero-bit literals (~40ms), then literal
+2^24+1: switch FALSE -> UNSAFE machine (the default first path of
+BrotliDecoderDecompressStream) discards it -> infinite
+CommandInner <-> NextLiteralBlock loop, zero bits consumed, 100% CPU,
+NEVER RETURNS (all APIs: one-shot and streaming, all 3 harness modes).
+SAFE machine (only if bit reader dry at the switch): permanent spurious
+NEEDS_MORE_INPUT.
+
+New (v1.2.1) behavior: same burn, then ERROR_FORMAT_BLOCK_SWITCH (-17)
+clean error in ~40ms. Negative control ✓.
+
+Empirical matrix (local pristine builds of v1.2.0/v1.2.1 tags,
+range/decodeh/harness.c with --large flag):
+```
+            --large   --large --stream/--ring   (no --large)
+v1.2.0      124 LIVELOCK (100% CPU)            rc=2 -13 (window bits)
+v1.2.1      rc=2 code=-17 in 0.04s             rc=2 -13
+```
+
+Who is exposed: any embedding that sets LARGE_WINDOW=1 on the decoder
+(Envoy brotli decompressor filter does; plain Node zlib / Bun do NOT by
+default — verify on the lanes at rung 5). Practical impact: CPU DoS /
+event-loop freeze via an 83-byte Content-Encoding: br body; also the
+spurious-NEEDS_MORE_INPUT stall variant for the safe machine.
 
 ## Constructs B (P2) and C (P3) — no behavioral delta, documented for honesty
 
@@ -118,12 +142,13 @@ re-litigates it later.
 
 - This construct is a **CPU livelock / DoS**, not an OOB write: the livelock
   loop (`NextLiteralBlock <-> CommandInner`) writes nothing; the literal
-  overshoot is bounded by ringbuffer_size checks. No write primitive is
-  apparent from the diff. If ASan fires on A2, it will be something we did
-  not predict — capture it.
-- The unchecked `meta_block_remaining_len -= i` overshoot itself predates
-  and survives the fix (1.2.1 still allows it); the added DCHECK only
-  asserts the *header* value <= 2^24, which MLEN satisfies by construction.
+  burn is bounded by ring checks. No write primitive is apparent from the
+  diff. If ASan fires on A2, it will be something we did not predict —
+  capture it.
+- The unchecked `meta_block_remaining_len -= i` overshoot itself is caught
+  by the G1 guards (BLOCK_LENGTH_1/2) — it is NOT a free OOB.
+- Non-large-window variants (a2_nsym1.br etc.) are kept as PROOF-OF-
+  UNREACHABILITY controls: stock decoders reject them (-9/-13/etc),
+  demonstrating the guards; only a2_large.br triggers.
 - Watch the ctrl (1.2.1 asan) run time on A2: it must still burn ~2^24
-  literals before erroring. If that's slow under ASan, that's expected;
-  give it a generous timeout but it should finish << 1s.
+  literals (~40ms native; slower under ASan) before erroring -17.

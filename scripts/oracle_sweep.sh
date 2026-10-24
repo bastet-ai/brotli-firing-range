@@ -11,13 +11,14 @@ mkdir -p "$(dirname "$0")/../lanes/glm1/captures"
 CAP="$(dirname "$0")/../lanes/glm1/captures"
 printf "file\tmode\trig\texit\ttime\tnote\n" > "$LOG"
 
-run_one() { # $1 img $2 mode $3 file
-  local img="$1" mode="$2" f="$3" tag m arg t0 rc ms
+run_one() { # $1 img $2 mode $3 file $4 extra-args
+  local img="$1" mode="$2" f="$3" extra="${4:-}" tag m arg t0 rc ms
   tag=$(basename "$img" | sed 's/brotli-firing-range-//')
   [ -s "$f" ] || return 0
   m="oneshot"; arg=""
   [ "$mode" = stream ] && { m="stream"; arg="--stream"; }
   [ "$mode" = ring ]   && { m="ring";   arg="--ring"; }
+  arg="$arg $extra"
   t0=$(date +%s%N)
   timeout 20 docker run --rm -v "$CORPUS:/c" "$img" /decode $arg "/c/$(basename "$f")" \
     > "$CAP/$(basename "$f").$m.$tag.out" 2>&1
@@ -32,11 +33,15 @@ run_one() { # $1 img $2 mode $3 file
   echo "$(basename "$f") $m $tag rc=$rc $ms ${note}"
 }
 
-# constructs first
+# constructs first (a2_large* need --large; others prove unreachability)
 for f in "$CORPUS"/constructs/*.br; do
+  case "$(basename "$f")" in
+    a2_large*) extra="--large" ;;
+    *) extra="" ;;
+  esac
   for mode in oneshot stream ring; do
-    run_one "$VULN_IMG" "$mode" "$f"
-    run_one "$CTRL_IMG" "$mode" "$f"
+    run_one "$VULN_IMG" "$mode" "$f" "$extra"
+    run_one "$CTRL_IMG" "$mode" "$f" "$extra"
   done
 done
 # then the 100 seeds, vuln rig only unless something fires
