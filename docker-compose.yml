@@ -58,6 +58,7 @@ services:
     image: node:24.22.0
     command: ["node", "/app/evil.js"]
     volumes: ["./range/fetch-lane:/app:ro", "./corpus:/corpus:ro"]
+    networks: { default: { aliases: ["evil"] } }
     ports: ["127.0.0.1:8129:8121"]
     restart: unless-stopped
   bun-vuln:

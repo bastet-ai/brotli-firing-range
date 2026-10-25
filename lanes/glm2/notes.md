@@ -67,4 +67,23 @@ app.js + our corpus only; loopback; timeout 20 every shell-out.
   path express5+body-parser2 with br bodies shows the error-code
   differential and NOTHING else on their exact image pair).
 
-## Step 4 — fetch-victim + evil-origin, chunked small-write delivery — pending
+## Step 4 — fetch-victim (:8128 vuln / :8131 ctrl) + evil-origin (:8129)
+- OUR evil.js serves corpus vectors as Content-Encoding: br, chunked
+  1KB writes + socket cork + 1ms pacing (real-socket delivery timing,
+  orchestrator-mandated). victim.js (node 24.22.0/24.22.1) fetches and
+  reads via arrayBuffer() -> undici streaming decompression.
+- VERIFIED: node 24.22.x fetch does NOT advertise br (Accept-Encoding:
+  gzip, deflate only) but DOES decompress br responses (len=130 for
+  valid; -9/-17 proves the brotli path).
+- 50 attempts x 111 vectors x 2 lanes = 11,100 fetches
+  (lanes/glm2/fetch-sweep50.tsv): ZERO crashes/hangs/restarts/OOM (all
+  3 containers RestartCount=0, OOMKilled=false). Vuln-vs-ctrl differs
+  ONLY by poc0/poc1: fetch TypeError 'terminated', cause errno -9 vs
+  -17.
+- STEP 4 VERDICT: NOT REPRODUCED (50-attempt floor, chunked real-socket
+  delivery matched).
+
+## Step 6 — verdict: lanes/glm2/verdict.md — all four app surfaces
+NOT REPRODUCED on the exact Imperva image pair at 50-attempt floor;
+only the -9<->-17 error fingerprint is app-visible. Per-step commits
+brot2: e3eb54f (step1) 83c803b (step2) + this commit.
