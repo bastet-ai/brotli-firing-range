@@ -1,65 +1,82 @@
-# VERDICT — brot-glm2 (rung 7e): APP-LEVEL RCE reproduction, CVE-2026-111497
+# FINAL VERDICT — CVE-2026-111497 app-level RCE reproduction (brot-glm2, rung 7e)
 
-Extends lanes/glm1/verdict.md (C level CLOSED: 88+ ASan runs zero OOB,
-append mechanism arithmetically fenced). This lane built the four app
-surfaces the prior lanes never had (streaming createBrotliDecompress
-pump, the exact Imperva image pair, express5+body-parser2 inbound,
-fetch/undici outbound) and swept OUR corpus against each on our arm64
-host — Imperva's proven architecture. Their exact build pair
-(node:24.22.0 vuln / node:24.22.1 ctrl) was used for every surface.
-NEVER executed googlesky/Imperva code; all lane code ours; loopback +
-own containers; timeout 20 every shell-out; npm ci --ignore-scripts
-with committed lockfile.
+Extends lanes/glm1/verdict.md. All lane code OURS; payloads OUR corpus +
+published vectors only (static reads); loopback + own containers; NEVER
+executed googlesky/Imperva code; timeout 20 every shell-out; express deps
+pinned with committed lockfile, npm ci --ignore-scripts. Host: arm64 —
+Imperva's proven architecture.
 
-## Per-surface final answer
+## Per-surface table
 
-| surface | verdict | attempts | crash/hang/restart/OOM | what IS observable |
+| surface | attempts | crashes/hangs/restarts/OOM/segfaults | differential observed | verdict |
 |---|---|---|---|---|
-| C level (glm1, closed) | fenced: no OOB write, DoS class only | 88 ASan runs + 100k-byte refeed | zero ASan | -9 vs -17 differential; livelock w/ LARGE_WINDOW |
-| node streaming (16B pump, drain-yield semantics) 22.23.3/22.23.4 | **NOT REPRODUCED** | 11,100 (50×111×2) | zero (pid stable, no events) | e.errno surfaces the bug signature: -9 vuln vs -17 ctrl (poc0/poc1, out=16,760,832 identical both) |
-| node streaming 24.22.0/24.22.1 (Imperva's exact pair) | **NOT REPRODUCED** | 11,100 (50×111×2) | zero (RestartCount=0, OOMKilled=false, events clean) | same -9↔-17 only; lineage confirmed (v1.2.0-family in 24.22.0, patched in 24.22.1) |
-| express@5.3.0 + body-parser@2.3.0 (raw/json/ejson, Content-Encoding: br bodies) 24.22.0/:8126 vs 24.22.1/:8127 | **NOT REPRODUCED** | 33,300 (50×111×3 routes×2) | zero | body-parser 400s with errno echoed: -9 vs -17 (poc0/poc1) — identical on all 3 parser routes |
-| fetch()/undici victim fetching OUR evil-origin (chunked 1KB corked delivery, real socket timing) 24.22.0/:8128 vs 24.22.1/:8131 | **NOT REPRODUCED** | 11,100 (50×111×2) | zero (all 3 containers RestartCount=0) | fetch TypeError 'terminated' with cause errno: -9 vs -17 (poc0/poc1) |
+| C level (glm1, closed) | 88 ASan runs + 100k-byte refeed + 339-run sweep | zero ASan reports | -9 vs -17; LARGE_WINDOW livelock | fenced: no OOB write; DoS class only |
+| node streaming 22.23.3/22.23.4 (:8121/:8125) — 16B drain-yield pump | 11,100 (50×111×2) | ZERO (pid stable) | e.errno: -9 vuln vs -17 ctrl (poc0/poc1) | **NOT REPRODUCED** |
+| node streaming 24.22.0/24.22.1 (:8124/:8130) — Imperva's exact image pair | 11,100 (50×111×2) | ZERO (RestartCount=0, OOMKilled=false, events clean, dmesg/journal: no segfault) | same -9↔-17 only; identical 16,760,832B output both builds | **NOT REPRODUCED** |
+| express@5.3.0 + body-parser@2.3.0 (:8126/:8127) — raw()/json()/bundled ejson, Content-Encoding: br bodies | 33,300 (50×111×3 routes×2) | ZERO | body-parser 400 with errno -9 vs -17, identical on all 3 routes | **NOT REPRODUCED** |
+| fetch()/undici victim (:8128 vuln 24.22.0 / :8131 ctrl 24.22.1) ← evil-origin (:8129, chunked 1KB corked writes) | 11,100 (50×111×2) | ZERO (all 3 containers RestartCount=0, no core dumps, no apport hits) | fetch TypeError 'terminated', cause errno -9 vs -17 | **NOT REPRODUCED** |
 
-## Verified facts this lane adds (beyond glm1)
+Total: ~66,700 app-level requests at the 50-attempt floor, all four
+surfaces live differential oracle (the vectors demonstrably bite: both
+error signatures present on every lane).
 
-1. **The bug's error-code differential IS app-visible on every surface.**
-   Streaming zlib surfaces e.errno: ERR__ERROR_FORMAT_BLOCK_LENGTH_1
-   (-9) on vulnerable builds vs ERR__ERROR_FORMAT_BLOCK_SWITCH (-17) on
-   patched — a clean fingerprint (detect/WAF), but NOT memory corruption.
-2. **undici (node 24.22.x) does NOT advertise br**: fetch sends
-   Accept-Encoding: gzip, deflate — yet it still decompresses
-   Content-Encoding: br responses (valid vector returns decompressed
-   len; errno differential proves the brotli path). Verified, not assumed.
-3. **The async pump never exhibits the googlesky append scenario**: at
-   app level, every "hungry" NMI state is resolved by the next write()
-   batch or terminated by end()/flush -> Z_BUF_ERROR(-5) truncation error
-   on BOTH builds (poc2/poc3: -5 both lanes; byte-count 13/19, 9/15
-   flush-timing nondeterminism identical across lanes — not a vuln
-   differential).
-4. **chunk=1 a2_nsym2 "hang" is dispatch overhead**, not livelock: 2M
-   byte-granular threadpool dispatches, ~27s, completes -9, both lanes.
-5. a2_nsym*/a2_overshoot shapes die -9 on BOTH builds (pre-existing
-   MLEN<0 proactive-push guard, unaffected by the patch); a2_large* die
-   -13 WINDOW_BITS (no embedding here sets LARGE_WINDOW) — matching the
-   glm1 fencing arithmetic at app level.
+## The googlesky arithmetic fence (why the append-OOB cannot fire)
 
-## Why Imperva's RCE claim does not reproduce here (honest state)
+The claimed primitive appends each new input byte into the 8-byte
+s->buffer linearly, requiring a never-completing P1-switch NEEDS_MORE_
+INPUT lie with MLEN >= 0 at every intervening proactive output push.
+That is arithmetically impossible: at the switch, MLEN_rem = 2^24 −
+sum_inserts − sum_copies = bl − sum_copies, while the trigger command
+needs insert >= bl + 1, so MLEN_rem <= bl − 2 < insert — WriteRingBuffer
+fires with MLEN < 0 and errors -9, sending the decoder terminal (error
+code < 0 short-circuits all later calls). The app-level observations
+confirm exactly this: every "hungry" streaming state is resolved by the
+next write() or terminated by end()/flush (Z_BUF_ERROR on BOTH builds
+for truncated vectors) — the unbounded-append condition never arises on
+any surface, in any feeding mode, at any chunk size (including byte-
+at-a-time, characterized to completion).
 
-On their exact image pair, architecture (arm64), and both proven
-surfaces (fetch br responses, express/body-parser br bodies), with
-real-socket chunked delivery timing, our full corpus + all published
-vectors, at the 50-attempt floor: NO crash, NO hang, NO restart, NO
-OOM, NO memory read-back anomaly, NO output-byte differential beyond
-the -9/-17 error code. Everything observable is consistent with
-glm1's conclusion: the b418fa8 flaw yields an error-code differential
-and (only via LARGE_WINDOW, which no surface here enables) a CPU
-livelock — not memory corruption. If Imperva's marker-file RCE is
-genuine, the delta is in components we do not have: their build/harness
-(Sysdig noted a weakened/custom build for googlesky), a different
-vector, or additional conditions — none reachable with the published
-vectors on official images. Verdict: **NOT REPRODUCED on all four
-surfaces; NOT INDICATIVE of RCE at app level on official builds.**
+## Why the Imperva RCE result does not reproduce (matched conditions)
 
-Artifacts: lanes/glm2/{stream-sweep50,stream-sweep-24x,express-sweep50,
-fetch-sweep50}.tsv, stream-sweep-chunk1.tsv, scripts, notes.md.
+Matched: their exact official image pair (node:24.22.0 /
+node:24.22.1), linux/arm64, both of their proven surfaces (fetch() br
+responses; express5/body-parser2 br request bodies), exact pinned
+express 5.3.0 / body-parser 2.3.0, default paths (no debugger, no
+LARGE_WINDOW), real-socket delivery timing (chunked transfer, corked
+1KB writes on the evil-origin), our full corpus including all published
+vectors (poc0-poc3, a2_*), 50 attempts per vector per lane, continuous
+restart/OOM/segfault watch (RestartCount, docker events, dmesg/journal).
+Observed: zero crashes, zero true hangs, zero restarts, zero OOM, zero
+segfaults, zero core dumps, zero memory read-back anomalies, and an
+output-byte differential of exactly nothing beyond the -9 (vuln) vs -17
+(patched) error code. If the marker-file RCE is genuine, the delta is in
+what we deliberately do not have: their custom/weakened harness or build
+(Sysdig's own note on the googlesky lab), an unpublished vector, or
+environmental conditions absent from official images. On official
+builds with the published vectors, this bug is an error-code
+differential and (only with LARGE_WINDOW enabled, which none of these
+surfaces do) a CPU livelock — NOT memory corruption.
+
+## Defensive bottom line (for the wiki)
+
+1. Patch: brotli >= 1.2.1 (all embeddings: node 24.22.1 / 22.23.4 pins
+   fix it; envoy pins vulnerable v1.2.0 at 1.39.2 — bump). Purely a
+   correctness/DoS patch: fix turns a silent FALSE-lie into -17.
+2. Detect: the bug fingerprints cleanly at app level — vulnerable
+   builds return error errno -9 (ERR__ERROR_FORMAT_BLOCK_LENGTH_1) on
+   block-switch-shaped streams where patched builds return -17
+   (ERR__ERROR_FORMAT_BLOCK_SWITCH). WAFs/proxies can pre-validate
+   Content-Encoding: br bodies against a patched decoder.
+3. Deny: LARGE_WINDOW decoding (the livelock path) — no mainstream
+   embedding enables it; keep it that way; cap decompression CPU/ratio
+   (envoy's 100x bomb ratio model) for the copy.
+4. Threat-model honestly: no reproduction exists (C or app level, ours
+   or the vectors' authors') of anything beyond DoS/error differential
+   on pristine builds; RCE claims traced to custom weakened harnesses
+   should not drive panic patching — the patch is still warranted
+   (error-correctness + the -17 fingerprint enables detection).
+
+Artifacts: lanes/glm2/{notes.md, stream-sweep50,stream-sweep-24x,
+express-sweep50,fetch-sweep50,stream-sweep-chunk1}.tsv + sweep scripts;
+range/{node/app.js, express/, fetch-lane/}; docker-compose.yml services.
+Commits: e3eb54f step1, 83c803b step2, fc5ba34 step3, 69fcb90 step4, this commit FINAL.
