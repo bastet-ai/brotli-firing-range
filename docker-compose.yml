@@ -34,6 +34,32 @@ services:
     volumes: ["./range/node:/app:ro"]
     ports: ["127.0.0.1:8130:8121"]
     restart: unless-stopped
+  express-vuln:
+    build: { context: range/express, args: { NODE_IMAGE: node:24.22.0 } }
+    ports: ["127.0.0.1:8126:8121"]
+    restart: unless-stopped
+  express-ctrl:
+    build: { context: range/express, args: { NODE_IMAGE: node:24.22.1 } }
+    ports: ["127.0.0.1:8127:8121"]
+    restart: unless-stopped
+  fetch-victim:
+    image: node:24.22.0
+    command: ["node", "/app/victim.js"]
+    volumes: ["./range/fetch-lane:/app:ro"]
+    ports: ["127.0.0.1:8128:8121"]
+    restart: unless-stopped
+  fetch-victim-ctrl:
+    image: node:24.22.1
+    command: ["node", "/app/victim.js"]
+    volumes: ["./range/fetch-lane:/app:ro"]
+    ports: ["127.0.0.1:8131:8121"]
+    restart: unless-stopped
+  evil-origin:
+    image: node:24.22.0
+    command: ["node", "/app/evil.js"]
+    volumes: ["./range/fetch-lane:/app:ro", "./corpus:/corpus:ro"]
+    ports: ["127.0.0.1:8129:8121"]
+    restart: unless-stopped
   bun-vuln:
     image: oven/bun:1.4.3-slim
     command: ["bun", "/app/app.ts"]

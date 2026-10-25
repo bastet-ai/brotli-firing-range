@@ -50,5 +50,21 @@ app.js + our corpus only; loopback; timeout 20 every shell-out.
   restart/OOM/memory anomaly on the streaming surface of the exact
   Imperva image pair).
 
-## Step 3 — express5.3.0+body-parser2.3.0 (:8126 vuln / :8127 ctrl) — pending
-## Step 4 — fetch-victim (:8128) + evil-origin (:8129) — pending
+## Step 3 — EXPRESS SURFACE :8126 (24.22.0) / :8127 (24.22.1)
+- range/express (OURS): express@5.3.0 + body-parser@2.3.0 exact pins,
+  package-lock.json committed (npm install --package-lock-only
+  --ignore-scripts), Dockerfile npm ci --ignore-scripts; routes
+  /raw (body-parser raw()), /json (body-parser json()), /ejson
+  (express 5.3.0 bundled json()); all inflate Content-Encoding: br via
+  streaming createBrotliDecompress. Error handler echoes err.errno.
+- Verified: valid br body -> 200 ok len=130; poc0 -> 400-ish {errno:-9
+  vuln / -17 ctrl} (body-parser catches the zlib stream 'error').
+- 50 attempts x 111 vectors x 3 routes x 2 lanes = 33,300 reqs
+  (lanes/glm2/express-sweep50.tsv): ZERO crashes/hangs/restarts/OOM
+  (RestartCount=0, OOMKilled=false, pid stable both). Vuln-vs-ctrl
+  differs ONLY by poc0/poc1 -9<->-17 (identical on all 3 routes).
+- STEP 3 VERDICT: NOT REPRODUCED (50-attempt floor; the Imperva inbound
+  path express5+body-parser2 with br bodies shows the error-code
+  differential and NOTHING else on their exact image pair).
+
+## Step 4 — fetch-victim + evil-origin, chunked small-write delivery — pending
