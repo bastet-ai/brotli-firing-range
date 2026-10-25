@@ -32,8 +32,23 @@ app.js + our corpus only; loopback; timeout 20 every shell-out.
 - STEP 1 VERDICT: node 22 streaming app surface = NOT REPRODUCED
   (error differential only; no crash/hang/memory anomaly; 50-attempt floor).
 
-## Step 2 — node:24.22.0 (:8124) / node:24.22.1 (:8130 ctrl) — Imperva's pair
-(pending)
+## Step 2 — node:24.22.0 (:8124 vuln) / node:24.22.1 (:8130 ctrl) — Imperva's exact pair
+- Services node240-vuln / node240-ctrl (compose, loopback-published, no
+  platform pin), same range/node/app.js streaming oracle.
+- 50 attempts x 111 vectors x 2 lanes = 11,100 reqs
+  (lanes/glm2/stream-sweep-24x.tsv): ZERO crashes, ZERO hangs, ZERO
+  restarts (docker inspect: RestartCount=0, OOMKilled=false both),
+  docker events: no die/oom/kill/restart. pid stable both.
+- Vuln-vs-ctrl differs ONLY by poc0/poc1 -9<->-17 (100 each; identical
+  out=16,760,832 both lanes both builds). a2_* identical to step 1.
+  poc2/poc3 partial-output byte count varies (13/19, 9/15) — flush-timing
+  nondeterminism on truncation, SAME on both lanes (not a differential).
+- Lineage note: 24.22.0 shows the vuln signature (-9 at P1-overshoot),
+  24.22.1 the patched one (-17 at switch) — oracle validity confirmed
+  (v1.2.0-lineage decoder in 24.22.0, patched in 24.22.1).
+- STEP 2 VERDICT: NOT REPRODUCED (50-attempt floor met, no crash/hang/
+  restart/OOM/memory anomaly on the streaming surface of the exact
+  Imperva image pair).
 
 ## Step 3 — express5.3.0+body-parser2.3.0 (:8126 vuln / :8127 ctrl) — pending
 ## Step 4 — fetch-victim (:8128) + evil-origin (:8129) — pending

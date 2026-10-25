@@ -22,7 +22,7 @@ services:
     volumes: ["./range/node:/app:ro"]
     ports: ["127.0.0.1:8125:8121"]
     restart: unless-stopped
-  node-vuln:
+  node240-vuln:
     image: node:24.22.0
     command: ["node", "/app/app.js"]
     volumes: ["./range/node:/app:ro"]
