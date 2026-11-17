@@ -42,3 +42,7 @@ Win conditions (in order): deterministic crash under ASan with minimized
 repro; write-primitive characterization (gdb, value/length control);
 then the exploit ladder (marker-file exec -> shell) — meterpreter-style
 delivery only after a primitive is proven, per the standing gate.
+
+## License
+
+Original Bastet-authored harness code, orchestration scripts, and documentation are licensed under the [Apache License 2.0](LICENSE). Upstream software and container images, upstream-derived patches or snippets, imported corpora, captured outputs, and other third-party materials are excluded from this grant and retain their existing rights and notices. This license does not change the range's authorization or safety boundaries.
